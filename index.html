@@ -1,0 +1,316 @@
+<style>
+  body{overflow-y:auto !important;height:100vh;}
+  #mainCont{overflow-y:auto;}
+  aside{overflow-y:auto;max-height:90vh;}
+</style>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Anime Real-Time Object Detection — Debugged</title>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Quicksand:wght@300;400;600&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --bg1:#0f0c29; --bg2:#302b63; --accent1:#ff4d8b; --accent2:#7b61ff; --glass: rgba(255,255,255,0.06);
+      --neon: 0 0 14px rgba(123,97,255,0.45), 0 0 30px rgba(255,77,139,0.12);
+      --card-radius:18px;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%;margin:0;font-family:Quicksand,system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial}
+    body{background:linear-gradient(135deg,var(--bg1),var(--bg2));color:#fff;overflow:hidden}
+
+    .app{position:relative;z-index:2;display:grid;grid-template-columns:1fr 360px;gap:24px;height:100vh;padding:32px}
+    .panel{background:var(--glass);padding:14px;border-radius:14px;border:1px solid rgba(255,255,255,0.04)}
+
+    .camera-wrap{position:relative;border-radius:14px;overflow:hidden;border:1px solid rgba(255,255,255,0.04);min-height:320px}
+    video#webcam{display:block;width:100%;height:auto;transform:scaleX(-1)}
+    canvas#overlay{position:absolute;left:0;top:0;pointer-events:none;transform:scaleX(-1)}
+
+    .controls{display:flex;gap:10px;align-items:center;margin-top:12px}
+    .btn{background:transparent;border:1px solid rgba(255,255,255,0.12);padding:10px 14px;border-radius:12px;cursor:pointer;font-weight:600;color:#fff}
+    .btn.primary{background:linear-gradient(90deg,var(--accent1),var(--accent2));box-shadow:var(--neon);border:0;color:#fff}
+
+    .status{margin-top:10px;font-size:13px;opacity:0.95}
+    .error-box{background:rgba(255,0,80,0.06);border:1px solid rgba(255,0,80,0.12);padding:10px;border-radius:10px;margin-top:10px}
+
+    .hint{font-size:13px;opacity:0.9}
+
+    @media(max-width:980px){.app{grid-template-columns:1fr;align-items:start;padding:18px;height:auto}}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div>
+      <div class="panel">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <h2 style="margin:0;font-family:Orbitron">NeonDetect — Debugged</h2>
+            <div class="hint">Anime-style real-time object detection (TensorFlow.js COCO-SSD). This version includes improved permission & HTTPS checks and clearer error messages.</div>
+          </div>
+          <div id="fps" style="font-family:Orbitron">-- FPS</div>
+        </div>
+
+        <div class="camera-wrap" id="cameraWrap">
+          <video id="webcam" playsinline autoplay muted></video>
+          <canvas id="overlay"></canvas>
+        </div>
+
+        <div class="controls">
+          <button class="btn primary" id="startBtn">Start Camera</button>
+          <button class="btn" id="stopBtn">Stop</button>
+          <button class="btn" id="retryPermBtn" style="display:none">Retry Permission</button>
+          <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+            <label class="hint">Boxes <input type="checkbox" id="showBoxes" checked></label>
+          </div>
+        </div>
+
+        <div class="status" id="status">Status: Idle</div>
+        <div id="errorArea" style="display:none" class="error-box"></div>
+
+        <div style="margin-top:8px;font-size:13px;opacity:0.9">Quick checks (if you see "Permission denied"):</div>
+        <ul style="font-size:13px;opacity:0.9">
+          <li>Are you running this page over HTTPS or on <code>localhost</code>? Browsers usually block camera on plain HTTP.</li>
+          <li>Did you deny the camera permission in the browser prompt? If yes, you'll need to allow it in site settings.</li>
+          <li>If using an embedded view (iframe) make sure <code>allow="camera"</code> is set.</li>
+        </ul>
+
+      </div>
+
+      <div style="margin-top:12px" class="panel">
+        <div style="font-weight:700">Technical notes</div>
+        <div style="font-size:13px;opacity:0.9;margin-top:6px">This page attempts to access the camera via <code>navigator.mediaDevices.getUserMedia</code>. If permission is denied the UI shows detailed guidance and a retry button. For local development use <code>http://localhost</code> (allowed) or serve over HTTPS.</div>
+      </div>
+
+    </div>
+
+    <aside style="width:340px">
+      <div class="panel" id="detectedPanel">
+        <div style="font-weight:700">Detected Objects</div>
+        <div id="detectedList" style="margin-top:8px;max-height:60vh;overflow:auto"></div>
+      </div>
+
+      <div style="margin-top:12px" class="panel">
+        <div style="font-weight:700">Debug Tools</div>
+        <div style="margin-top:8px;display:flex;flex-direction:column;gap:8px">
+          <button class="btn" id="simPermError">Simulate Permission Error</button>
+          <button class="btn" id="showPermissionState">Show Browser Permission State</button>
+          <div id="permState" style="font-size:13px;opacity:0.9"></div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- Scripts -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.20.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.2/dist/coco-ssd.min.js"></script>
+  <script>
+    // Elements
+    const video = document.getElementById('webcam');
+    const overlay = document.getElementById('overlay');
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const retryPermBtn = document.getElementById('retryPermBtn');
+    const statusEl = document.getElementById('status');
+    const errorArea = document.getElementById('errorArea');
+    const detectedList = document.getElementById('detectedList');
+    const fpsBadge = document.getElementById('fps');
+    const showBoxes = document.getElementById('showBoxes');
+
+    let model = null; let stream = null; let running = false; let lastDetected = new Map();
+    const ctx = overlay.getContext('2d');
+
+    // Simple FPS
+    let frames = 0; let lastFpsUpdate = performance.now();
+
+    // Check secure context
+    function isSecureContextAllowed(){
+      // localhost is allowed over http for getUserMedia in most browsers
+      const host = location.hostname;
+      if(host === 'localhost' || host === '127.0.0.1') return true;
+      return location.protocol === 'https:';
+    }
+
+    function showError(message, details){
+      errorArea.style.display = 'block';
+      errorArea.innerHTML = `<strong>${message}</strong><div style="margin-top:6px;font-size:13px;opacity:0.95">${details||''}</div>`;
+      statusEl.textContent = 'Error';
+      retryPermBtn.style.display = 'inline-block';
+    }
+
+    function clearError(){ errorArea.style.display='none'; errorArea.innerHTML=''; retryPermBtn.style.display='none'; }
+
+    async function ensureModel(){
+      if(model) return model;
+      statusEl.textContent = 'Loading model...';
+      try{
+        model = await cocoSsd.load();
+        statusEl.textContent = 'Model loaded';
+        return model;
+      }catch(e){
+        console.error('Model load failed', e);
+        showError('Model load failed', e.message || e.toString());
+        throw e;
+      }
+    }
+
+    async function startCamera(){
+      clearError();
+      if(running) return;
+
+      if(!isSecureContextAllowed()){
+        showError('Insecure context — camera blocked', 'This page is not served over HTTPS and your browser blocks camera access. Serve the page over HTTPS or open it from <code>http://localhost</code>.');
+        return;
+      }
+
+      try{
+        statusEl.textContent = 'Requesting camera...';
+        // A conservative constraint for wide support
+        const constraints = { video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } }, audio: false };
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        video.srcObject = stream;
+        await video.play();
+        resizeCanvas();
+        await ensureModel();
+        running = true;
+        statusEl.textContent = 'Detecting...';
+        requestAnimationFrame(loop);
+      }catch(err){
+        console.error('getUserMedia error', err);
+        handleGetUserMediaError(err);
+      }
+    }
+
+    function handleGetUserMediaError(err){
+      // Provide actionable, user-friendly messages
+      if(err && err.name === 'NotAllowedError'){
+        showError('Permission denied', 'You denied camera access. Check your browser site permissions (click the lock icon in the address bar) and allow the camera. If you previously blocked it, you must change the permission in site settings.');
+      } else if(err && err.name === 'NotFoundError'){
+        showError('No camera found', 'No camera device was found. Ensure your webcam is connected and not in use by another app.');
+      } else if(err && err.name === 'NotReadableError'){
+        showError('Camera in use', 'The camera is already in use by another application. Close other apps and retry.');
+      } else {
+        showError('Camera error', err && err.message ? err.message : 'Unknown error while accessing camera');
+      }
+    }
+
+    function stopCamera(){
+      running = false;
+      if(stream){ stream.getTracks().forEach(t=>t.stop()); stream = null; }
+      ctx.clearRect(0,0,overlay.width,overlay.height);
+      statusEl.textContent = 'Stopped';
+      detectedList.innerHTML = '';
+      lastDetected.clear();
+      clearError();
+    }
+
+    function resizeCanvas(){
+      overlay.width = video.videoWidth || 640;
+      overlay.height = video.videoHeight || 480;
+      overlay.style.width = video.offsetWidth + 'px';
+      overlay.style.height = video.offsetHeight + 'px';
+    }
+
+    async function loop(){
+      if(!running) return;
+      if(video.readyState < 2){ requestAnimationFrame(loop); return; }
+
+      try{
+        const predictions = await model.detect(video);
+        draw(predictions);
+      }catch(err){
+        console.error('detect err',err);
+        // if detection throws because camera stopped, stop gracefully
+        if(err.name === 'NotReadableError' || err.name === 'NotAllowedError'){
+          handleGetUserMediaError(err); stopCamera(); return;
+        }
+      }
+
+      // fps update
+      frames++;
+      const now = performance.now();
+      if(now - lastFpsUpdate > 500){
+        const fps = Math.round((frames*1000)/(now-lastFpsUpdate));
+        fpsBadge.textContent = fps + ' FPS';
+        frames = 0; lastFpsUpdate = now;
+      }
+
+      requestAnimationFrame(loop);
+    }
+
+    function draw(predictions){
+      resizeCanvas();
+      ctx.clearRect(0,0,overlay.width,overlay.height);
+      const minScore = 0.5; // fixed for simplicity in this debug version
+      const seenThisFrame = new Set();
+
+      predictions.forEach(p => {
+        if(p.score < minScore) return;
+        const [x,y,w,h] = p.bbox;
+        seenThisFrame.add(p.class);
+
+        if(showBoxes.checked){
+          ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,77,139,0.9)';
+          ctx.strokeRect(x,y,w,h);
+          ctx.shadowBlur = 18; ctx.shadowColor = 'rgba(123,97,255,0.25)';
+          ctx.strokeRect(x-1,y-1,w+2,h+2); ctx.shadowBlur = 0;
+        }
+      });
+
+      updateDetectedList(seenThisFrame);
+    }
+
+    function updateDetectedList(seenThisFrame){
+      for(const key of Array.from(lastDetected.keys())){
+        const obj = lastDetected.get(key);
+        obj.age = (obj.age || 0) + 1; if(obj.age > 30){ lastDetected.delete(key); }
+      }
+      for(const cls of seenThisFrame){ if(!lastDetected.has(cls)){ lastDetected.set(cls,{count:1,age:0}); } else { const o = lastDetected.get(cls); o.count = (o.count||0)+1; o.age = 0; lastDetected.set(cls,o); } }
+
+      detectedList.innerHTML = '';
+      for(const [cls,meta] of Array.from(lastDetected.entries()).sort((a,b)=>b[1].count-a[1].count)){
+        const el = document.createElement('div'); el.style.display='flex'; el.style.justifyContent='space-between'; el.style.padding='6px'; el.style.borderBottom='1px solid rgba(255,255,255,0.03)';
+        el.innerHTML = `<div style="font-weight:700">${cls}</div><div style="opacity:0.9">${meta.count}</div>`;
+        detectedList.appendChild(el);
+      }
+    }
+
+    // Debug helpers
+    startBtn.addEventListener('click', ()=>{ startCamera(); });
+    stopBtn.addEventListener('click', ()=>{ stopCamera(); });
+    retryPermBtn.addEventListener('click', ()=>{ clearError(); startCamera(); });
+
+    document.getElementById('simPermError').addEventListener('click', ()=>{
+      handleGetUserMediaError({name:'NotAllowedError', message:'Simulated permission denied for testing.'});
+    });
+
+    document.getElementById('showPermissionState').addEventListener('click', async ()=>{
+      const out = document.getElementById('permState'); out.textContent = '';
+      if(!navigator.permissions){ out.textContent = 'Permissions API not supported in this browser.'; return; }
+      try{
+        // Not all browsers support 'camera' so try 'camera' then 'microphone' as fallback
+        const permNames = ['camera','microphone'];
+        for(const name of permNames){
+          try{
+            const p = await navigator.permissions.query({name});
+            out.textContent += `${name}: ${p.state}\n`;
+          }catch(e){ /* ignore unsupported */ }
+        }
+      }catch(e){ out.textContent = 'Error reading permissions: '+e.message; }
+    });
+
+    // Informative initial check
+    (function initHint(){
+      if(!('mediaDevices' in navigator) || !navigator.mediaDevices.getUserMedia){
+        showError('Webcam API not available', 'Your browser does not support getUserMedia. Try a modern browser (Chrome/Firefox/Edge).');
+      } else if(!isSecureContextAllowed()){
+        showError('Insecure context', 'This page is not loaded over HTTPS. Browsers block camera access on non-secure origins. For local testing use http://localhost or serve over HTTPS.');
+      }
+    })();
+
+    // small graceful fallback
+    window.addEventListener('unhandledrejection', e=>{ console.warn('promise rejection', e); });
+
+  </script>
+</body>
+</html>
