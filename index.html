@@ -3,294 +3,371 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Watermark Camera</title>
+    <title>Watermark Cam</title>
     <style>
-        body {
-            margin: 0;
-            background: #000;
-            font-family: sans-serif;
-            overflow: hidden; /* Prevent scrolling */
-            display: flex;
-            flex-direction: column;
-            height: 100vh;
+        :root {
+            --primary: #2563eb;
+            --accent: #ef4444;
+            --bg: #0f172a;
+            --panel: #1e293b;
+            --text: #f8fafc;
         }
 
-        /* The Viewport */
-        #camera-container {
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            height: 100dvh; /* Dynamic viewport height for mobile */
+            display: flex;
+            flex-direction: column;
+            overflow: hidden; /* Prevent body scroll */
+        }
+
+        /* 1. Camera Section (Flexible Height) */
+        .camera-viewport {
+            flex: 1; /* Takes all available space */
             position: relative;
-            width: 100%;
-            flex-grow: 1;
+            background: #000;
             overflow: hidden;
             display: flex;
-            justify-content: center;
             align-items: center;
-            background: #222;
+            justify-content: center;
         }
 
         video {
             width: 100%;
             height: 100%;
-            object-fit: cover; /* Fills screen */
+            object-fit: cover;
             display: block;
         }
 
-        /* The Watermark Overlay */
+        /* The Draggable Watermark */
         #watermark-layer {
             position: absolute;
-            top: 50%; /* Start center */
+            top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            max-width: 150px;
-            touch-action: none; /* Critical for dragging */
-            cursor: move;
+            width: 120px;
+            touch-action: none; /* Prevents screen scrolling while dragging */
             user-select: none;
-            display: none; /* Hidden until uploaded */
-            border: 1px dashed rgba(255,255,255,0.3); /* Helper border */
+            cursor: move;
+            display: none; /* Hidden initially */
+            border: 2px dashed rgba(255, 255, 255, 0.4);
+            pointer-events: auto;
+        }
+        
+        #watermark-layer.active {
+            border: none; /* Remove border when snapping */
         }
 
-        /* Controls Area */
-        #controls {
-            background: rgba(0, 0, 0, 0.8);
-            padding: 15px;
-            color: white;
+        /* 2. Controls Section (Fixed Bottom Sheet) */
+        .controls-panel {
+            flex-shrink: 0; /* Never shrink */
+            background: var(--panel);
+            padding: 20px;
+            border-top-left-radius: 20px;
+            border-top-right-radius: 20px;
+            box-shadow: 0 -4px 20px rgba(0,0,0,0.5);
             z-index: 10;
         }
 
-        .control-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 10px;
+        .slider-group {
+            margin-bottom: 15px;
         }
 
-        label { font-size: 12px; width: 60px; }
-        input[type="range"] { flex-grow: 1; margin: 0 10px; }
-
-        .buttons {
+        .slider-label {
             display: flex;
-            gap: 10px;
+            justify-content: space-between;
+            font-size: 12px;
+            color: #94a3b8;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* Custom Range Sliders */
+        input[type=range] {
+            width: 100%;
+            -webkit-appearance: none;
+            background: transparent;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 20px;
+            width: 20px;
+            border-radius: 50%;
+            background: var(--primary);
+            margin-top: -8px;
+            box-shadow: 0 0 10px rgba(37, 99, 235, 0.5);
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            background: #334155;
+            border-radius: 2px;
+        }
+
+        /* Action Buttons */
+        .action-row {
+            display: grid;
+            grid-template-columns: 1fr 1.5fr;
+            gap: 15px;
             margin-top: 10px;
         }
 
-        button, .file-upload {
-            flex: 1;
-            padding: 12px;
+        .btn {
             border: none;
-            border-radius: 8px;
-            font-weight: bold;
-            font-size: 14px;
-            text-align: center;
+            padding: 15px;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 16px;
             cursor: pointer;
-        }
-
-        .file-upload {
-            background: #444;
-            color: white;
-            position: relative;
-            overflow: hidden;
-        }
-        
-        .file-upload input {
-            position: absolute;
-            top: 0; left: 0; width: 100%; height: 100%;
-            opacity: 0;
-        }
-
-        #btn-snap {
-            background: #ff5252;
-            color: white;
-        }
-
-        /* Result Modal */
-        #result-modal {
-            position: fixed;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background: #000;
-            z-index: 20;
-            display: none;
-            flex-direction: column;
+            display: flex;
             align-items: center;
             justify-content: center;
+            transition: transform 0.1s;
         }
-        #result-img {
-            max-width: 90%;
-            max-height: 80%;
-            border: 2px solid white;
+
+        .btn:active { transform: scale(0.98); }
+
+        .btn-upload {
+            background: #334155;
+            color: white;
+            position: relative;
         }
-        #close-modal {
-            margin-top: 20px;
-            padding: 10px 30px;
-            background: white;
-            color: black;
-            border: none;
-            font-size: 16px;
+        
+        .btn-upload input {
+            position: absolute;
+            opacity: 0;
+            width: 100%;
+            height: 100%;
+            left: 0; top: 0;
         }
+
+        .btn-capture {
+            background: var(--accent);
+            color: white;
+        }
+
+        /* 3. Result Modal */
+        .modal {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: #000;
+            z-index: 50;
+            display: none;
+            flex-direction: column;
+            padding: 20px;
+        }
+
+        .modal img {
+            flex: 1;
+            width: 100%;
+            object-fit: contain;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .modal-buttons {
+            display: flex;
+            gap: 10px;
+        }
+
+        .btn-close { background: #334155; color: white; width: 100%; }
+        .btn-save { background: var(--primary); color: white; width: 100%; text-decoration: none; text-align: center; line-height: 50px;}
+
     </style>
 </head>
 <body>
 
-    <div id="camera-container">
+    <div class="camera-viewport" id="viewport">
         <video id="video" autoplay playsinline muted></video>
         <img id="watermark-layer" src="" alt="Watermark">
     </div>
 
-    <div id="controls">
-        <div class="control-row">
-            <label>Size</label>
-            <input type="range" id="scale" min="50" max="300" value="100">
+    <div class="controls-panel">
+        
+        <div class="slider-group">
+            <div class="slider-label"><span>Size</span> <span id="size-val">100px</span></div>
+            <input type="range" id="scale" min="50" max="300" value="120">
         </div>
-        <div class="control-row">
-            <label>Opacity</label>
+
+        <div class="slider-group">
+            <div class="slider-label"><span>Transparency</span> <span id="opacity-val">80%</span></div>
             <input type="range" id="opacity" min="0.1" max="1" step="0.1" value="0.8">
         </div>
 
-        <div class="buttons">
-            <div class="file-upload">
-                Upload Logo
+        <div class="action-row">
+            <div class="btn btn-upload">
+                📂 Logo
                 <input type="file" id="logo-input" accept="image/*">
             </div>
-            <button id="btn-snap">Capture</button>
+            <button class="btn btn-capture" id="btn-snap">
+                📸 Capture
+            </button>
         </div>
     </div>
 
     <canvas id="canvas" style="display:none;"></canvas>
 
-    <div id="result-modal">
+    <div class="modal" id="result-modal">
+        <h3 style="text-align:center; margin: 0 0 10px 0; font-size: 14px; color: #aaa;">Long press image to save</h3>
         <img id="result-img">
-        <button id="close-modal">Close / Retake</button>
+        <div class="modal-buttons">
+            <button class="btn btn-close" id="close-modal">Retry</button>
+        </div>
     </div>
 
     <script>
+        // --- Elements ---
         const video = document.getElementById('video');
-        const canvas = document.getElementById('canvas');
         const watermark = document.getElementById('watermark-layer');
-        const logoInput = document.getElementById('logo-input');
-        const btnSnap = document.getElementById('btn-snap');
+        const canvas = document.getElementById('canvas');
         const resultModal = document.getElementById('result-modal');
         const resultImg = document.getElementById('result-img');
-        const closeModal = document.getElementById('close-modal');
-
-        // Ranges
-        const scaleInput = document.getElementById('scale');
-        const opacityInput = document.getElementById('opacity');
-
-        // State for dragging
+        
+        // --- State ---
+        let currentStream = null;
         let isDragging = false;
-        let startX, startY, initialLeft, initialTop;
+        let dragStartX, dragStartY;
+        let initialLeft, initialTop;
 
-        // 1. Initialize Camera
+        // --- 1. Camera Init ---
         async function startCamera() {
             try {
-                // Tries to get the rear camera ('environment')
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: { exact: "environment" } } 
-                });
-                video.srcObject = stream;
+                // Prefer rear camera
+                const constraints = { 
+                    video: { 
+                        facingMode: "environment",
+                        width: { ideal: 1920 },
+                        height: { ideal: 1080 }
+                    } 
+                };
+                currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+                video.srcObject = currentStream;
             } catch (err) {
-                // Fallback for laptops/other devices
+                // Laptop fallback
                 try {
-                    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-                    video.srcObject = stream;
-                } catch (e) {
-                    alert("Camera access denied or not available.");
+                    currentStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                    video.srcObject = currentStream;
+                } catch(e) {
+                    alert("Camera access denied.");
                 }
             }
         }
         startCamera();
 
-        // 2. Handle Logo Upload
-        logoInput.addEventListener('change', (e) => {
-            const file = e.target.files[0];
-            if (file) {
+        // --- 2. Logo Upload ---
+        document.getElementById('logo-input').addEventListener('change', function(e) {
+            if (e.target.files && e.target.files[0]) {
                 const reader = new FileReader();
-                reader.onload = (evt) => {
+                reader.onload = function(evt) {
                     watermark.src = evt.target.result;
                     watermark.style.display = 'block';
-                };
-                reader.readAsDataURL(file);
+                    // Reset position to center
+                    watermark.style.top = '50%';
+                    watermark.style.left = '50%';
+                    watermark.style.transform = 'translate(-50%, -50%)';
+                }
+                reader.readAsDataURL(e.target.files[0]);
             }
         });
 
-        // 3. Handle Sliders
-        opacityInput.addEventListener('input', (e) => {
-            watermark.style.opacity = e.target.value;
-        });
+        // --- 3. Controls (Size/Opacity) ---
+        const scaleInput = document.getElementById('scale');
+        const opacityInput = document.getElementById('opacity');
+        const sizeVal = document.getElementById('size-val');
+        const opacityVal = document.getElementById('opacity-val');
 
         scaleInput.addEventListener('input', (e) => {
-            // Adjust width to simulate scaling
             watermark.style.width = e.target.value + 'px';
-            watermark.style.maxWidth = 'none'; // remove limit
+            sizeVal.innerText = e.target.value + 'px';
         });
 
-        // 4. Drag Logic (Touch)
+        opacityInput.addEventListener('input', (e) => {
+            watermark.style.opacity = e.target.value;
+            opacityVal.innerText = Math.round(e.target.value * 100) + '%';
+        });
+
+        // --- 4. Touch Drag Logic ---
         watermark.addEventListener('touchstart', (e) => {
             isDragging = true;
-            startX = e.touches[0].clientX;
-            startY = e.touches[0].clientY;
+            const touch = e.touches[0];
+            dragStartX = touch.clientX;
+            dragStartY = touch.clientY;
             
             const rect = watermark.getBoundingClientRect();
-            // Get current visual position
             initialLeft = rect.left;
             initialTop = rect.top;
         });
 
         document.addEventListener('touchmove', (e) => {
             if (!isDragging) return;
-            const currentX = e.touches[0].clientX;
-            const currentY = e.touches[0].clientY;
+            e.preventDefault(); // Stop page scrolling
             
-            const dx = currentX - startX;
-            const dy = currentY - startY;
+            const touch = e.touches[0];
+            const dx = touch.clientX - dragStartX;
+            const dy = touch.clientY - dragStartY;
 
-            // Update position manually
-            // We use fixed positioning style for the visual update
-            watermark.style.transform = 'none'; // Disable center translate
+            // Remove transform centering to allow free movement
+            watermark.style.transform = 'none';
             watermark.style.left = (initialLeft + dx) + 'px';
             watermark.style.top = (initialTop + dy) + 'px';
-        }, { passive: false }); // passive: false allows preventing default if needed
+        }, { passive: false });
 
-        document.addEventListener('touchend', () => {
-            isDragging = false;
-        });
+        document.addEventListener('touchend', () => isDragging = false);
 
-        // 5. Capture Logic (The Hard Part)
-        btnSnap.addEventListener('click', () => {
-            // Set canvas to match video resolution
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
+        // --- 5. Capture & Combine ---
+        document.getElementById('btn-snap').addEventListener('click', () => {
+            if (!currentStream) return;
+
+            // 1. Setup Canvas size to match actual Video Stream Resolution
+            const vWidth = video.videoWidth;
+            const vHeight = video.videoHeight;
+            canvas.width = vWidth;
+            canvas.height = vHeight;
             const ctx = canvas.getContext('2d');
 
-            // Draw Video
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            // 2. Draw the Video Frame
+            ctx.drawImage(video, 0, 0, vWidth, vHeight);
 
-            // Draw Watermark
-            // We must calculate the watermark's position RELATIVE to the video element
-            // and scale that up to the actual video resolution.
-            if (watermark.src) {
+            // 3. Draw Watermark (Math required to map screen position to video resolution)
+            if (watermark.style.display !== 'none') {
                 const videoRect = video.getBoundingClientRect();
                 const wmRect = watermark.getBoundingClientRect();
 
-                // Calculate ratios
-                const scaleX = canvas.width / videoRect.width;
-                const scaleY = canvas.height / videoRect.height;
+                // Calculate ratio between Screen Video Size and Actual Video Resolution
+                // Note: object-fit: cover complicates this. 
+                // We calculate scaling factor based on the visible area.
+                
+                // Get the computed style object fit ratio
+                // Simple approach: Map coordinates directly relative to the video element visual size
+                
+                const scaleX = vWidth / videoRect.width;
+                const scaleY = vHeight / videoRect.height;
 
-                // Position on canvas
                 const drawX = (wmRect.left - videoRect.left) * scaleX;
                 const drawY = (wmRect.top - videoRect.top) * scaleY;
                 const drawW = wmRect.width * scaleX;
                 const drawH = wmRect.height * scaleY;
 
                 ctx.globalAlpha = watermark.style.opacity || 0.8;
+                
+                // Temporarily hide border for capture
+                watermark.classList.add('active'); 
                 ctx.drawImage(watermark, drawX, drawY, drawW, drawH);
+                watermark.classList.remove('active');
             }
 
-            // Show Result
-            const dataURL = canvas.toDataURL('image/png');
-            resultImg.src = dataURL;
+            // 4. Show Result
+            resultImg.src = canvas.toDataURL('image/jpeg', 0.95);
             resultModal.style.display = 'flex';
         });
 
-        closeModal.addEventListener('click', () => {
+        document.getElementById('close-modal').addEventListener('click', () => {
             resultModal.style.display = 'none';
         });
 
